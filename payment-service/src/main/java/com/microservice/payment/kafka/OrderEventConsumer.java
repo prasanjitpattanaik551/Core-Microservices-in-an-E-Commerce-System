@@ -3,7 +3,6 @@ package com.microservice.payment.kafka;
 import com.microservice.common.constants.KafkaTopics;
 import com.microservice.common.event.OrderCreatedEvent;
 import com.microservice.common.event.PaymentProcessedEvent;
-import com.microservice.payment.entity.PaymentOrder;
 import com.microservice.payment.service.PaymentService;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -14,8 +13,9 @@ import org.springframework.stereotype.Component;
 import java.time.LocalDateTime;
 
 /**
- * Kafka consumer that listens for OrderCreatedEvent from ecommerce-service.
- * Processes the payment and publishes a PaymentProcessedEvent back.
+ * Listens for OrderCreatedEvent from ecommerce-service and creates a Razorpay order.
+ * The order stays PENDING in ecommerce-service until the customer pays and the
+ * /verify endpoint publishes the PaymentProcessedEvent.
  */
 @Component
 public class OrderEventConsumer {
@@ -30,36 +30,21 @@ public class OrderEventConsumer {
 
     @KafkaListener(topics = KafkaTopics.ORDER_CREATED, groupId = "payment-service-group")
     public void handleOrderCreated(OrderCreatedEvent event) {
-        log.info("📥 Received OrderCreatedEvent: {}", event);
+        log.info("Received OrderCreatedEvent: {}", event);
 
         try {
-            // Process the payment
-            PaymentOrder paymentOrder = paymentService.processPaymentFromKafka(
+            paymentService.createPaymentForOrder(
                     event.getOrderId(),
                     event.getUserName(),
                     event.getUserEmail(),
                     event.getTotalAmount()
             );
-
-            // Publish PaymentProcessedEvent back to Kafka
-            PaymentProcessedEvent paymentEvent = new PaymentProcessedEvent(
-                    event.getOrderId(),
-                    paymentOrder.getPaymentId(),
-                    paymentOrder.getOrderId(),
-                    paymentOrder.getStatus(),
-                    paymentOrder.getAmount(),
-                    paymentOrder.getEmail(),
-                    paymentOrder.getName(),
-                    LocalDateTime.now()
-            );
-
-            paymentEventProducer.publishPaymentProcessed(paymentEvent);
-            log.info("✅ Payment processed and event published for ecommerce orderId={}", event.getOrderId());
+            log.info("Razorpay order created, waiting for customer payment. ecommerce orderId={}", event.getOrderId());
 
         } catch (Exception e) {
-            log.error("❌ Error processing payment for orderId={}: {}", event.getOrderId(), e.getMessage(), e);
+            log.error("Could not create Razorpay order for orderId={}: {}", event.getOrderId(), e.getMessage(), e);
 
-            // Publish a FAILED event so ecommerce-service knows payment failed
+            // Tell ecommerce-service so the order is marked PAYMENT_FAILED
             PaymentProcessedEvent failedEvent = new PaymentProcessedEvent(
                     event.getOrderId(),
                     null,
