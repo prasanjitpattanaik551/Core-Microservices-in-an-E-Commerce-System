@@ -13,8 +13,10 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.web.server.ResponseStatusException;
 
 import java.time.LocalDateTime;
 
@@ -95,7 +97,15 @@ public class PaymentService {
     public PaymentOrder getPaymentByEcommerceOrderId(Long ecommerceOrderId) {
         PaymentOrder payment = paymentRepo.findByEcommerceOrderId(ecommerceOrderId);
         if (payment == null) {
-            throw new RuntimeException("Payment not found for order: " + ecommerceOrderId);
+            throw new ResponseStatusException(HttpStatus.NOT_FOUND, "Payment not found for order: " + ecommerceOrderId);
+        }
+        return payment;
+    }
+
+    public PaymentOrder getPaymentByRazorpayOrderId(String razorpayOrderId) {
+        PaymentOrder payment = paymentRepo.findByOrderId(razorpayOrderId);
+        if (payment == null) {
+            throw new ResponseStatusException(HttpStatus.NOT_FOUND, "Payment not found for Razorpay order: " + razorpayOrderId);
         }
         return payment;
     }
@@ -113,7 +123,7 @@ public class PaymentService {
                                           String razorpaySignature) {
         PaymentOrder payment = paymentRepo.findByOrderId(razorpayOrderId);
         if (payment == null) {
-            throw new RuntimeException("Payment not found for Razorpay order: " + razorpayOrderId);
+            throw new ResponseStatusException(HttpStatus.NOT_FOUND, "Payment not found for Razorpay order: " + razorpayOrderId);
         }
 
         // Idempotency: already finished, do not process or publish twice
@@ -156,7 +166,7 @@ public class PaymentService {
     public PaymentOrder markFailed(String razorpayOrderId) {
         PaymentOrder payment = paymentRepo.findByOrderId(razorpayOrderId);
         if (payment == null) {
-            throw new RuntimeException("Payment not found for Razorpay order: " + razorpayOrderId);
+            throw new ResponseStatusException(HttpStatus.NOT_FOUND, "Payment not found for Razorpay order: " + razorpayOrderId);
         }
         if ("SUCCESS".equals(payment.getStatus())) {
             return payment; // never downgrade a successful payment

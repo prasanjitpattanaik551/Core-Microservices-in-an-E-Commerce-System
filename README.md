@@ -225,7 +225,3 @@ curl -X POST http://localhost:9090/api/orders/place/1 \
 curl http://localhost:9090/api/orders/all-orders
 ```
 
-## 🏗️ Original Projects
-
-- [E-Commerce (Flipkart)](./E-commerce/) — Original standalone e-commerce app
-- [Payment Gateway](./Payment-Gateway-Project/) — Original standalone payment gateway

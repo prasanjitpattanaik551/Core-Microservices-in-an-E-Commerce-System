@@ -11,13 +11,17 @@ import com.microservice.ecommerce.repo.ProductRepository;
 import com.microservice.ecommerce.repo.UserRepository;
 import com.microservice.ecommerce.kafka.OrderEventProducer;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
+import org.springframework.web.server.ResponseStatusException;
 
 import java.util.*;
 import java.util.stream.Collectors;
 
 @Service
 public class OrderService {
+
+    private static final int MAX_QUANTITY_PER_ITEM = 100;
 
     @Autowired
     private UserRepository userRepository;
@@ -31,32 +35,48 @@ public class OrderService {
     @Autowired
     private OrderEventProducer orderEventProducer;
 
-    public OrderDTO placeOrder(Long userId, Map<Long, Integer> productQuantities, double totalAmount) {
+    /**
+     * The total amount is calculated here from the prices stored in the database.
+     * It is never taken from the client, so a user cannot change the price they pay.
+     */
+    public OrderDTO placeOrder(Long userId, Map<Long, Integer> productQuantities) {
+        if (productQuantities == null || productQuantities.isEmpty()) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Order must contain at least one product");
+        }
+
         User user = userRepository.findById(userId)
-                .orElseThrow(() -> new RuntimeException("User not found"));
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "User not found"));
 
         Orders order = new Orders();
         order.setUser(user);
         order.setOrderDate(new Date());
         order.setStatus("PENDING");
-        order.setTotalAmount(totalAmount);
 
         List<OrderItem> orderItems = new ArrayList<>();
         List<OrderItemDTO> orderItemDTOS = new ArrayList<>();
+        double total = 0;
 
         for (Map.Entry<Long, Integer> entry : productQuantities.entrySet()) {
+            Integer quantity = entry.getValue();
+            if (quantity == null || quantity <= 0 || quantity > MAX_QUANTITY_PER_ITEM) {
+                throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
+                        "Quantity must be between 1 and " + MAX_QUANTITY_PER_ITEM);
+            }
+
             Product product = productRepository.findById(entry.getKey())
-                    .orElseThrow(() -> new RuntimeException("Product Not found"));
+                    .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Product not found"));
 
             OrderItem orderItem = new OrderItem();
             orderItem.setOrder(order);
             orderItem.setProduct(product);
-            orderItem.setQuantity(entry.getValue());
+            orderItem.setQuantity(quantity);
             orderItems.add(orderItem);
 
-            orderItemDTOS.add(new OrderItemDTO(product.getName(), product.getPrice(), entry.getValue()));
+            orderItemDTOS.add(new OrderItemDTO(product.getName(), product.getPrice(), quantity));
+            total += product.getPrice() * quantity;
         }
 
+        order.setTotalAmount(Math.round(total * 100.0) / 100.0);
         order.setOrderItems(orderItems);
         Orders saveOrder = orderRepository.save(order);
 
@@ -90,11 +110,8 @@ public class OrderService {
     }
 
     public List<OrderDTO> getOrderByUser(Long userId) {
-        Optional<User> userOp = userRepository.findById(userId);
-        if (userOp.isEmpty()) {
-            throw new RuntimeException("user not found");
-        }
-        User user = userOp.get();
+        User user = userRepository.findById(userId)
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "User not found"));
         List<Orders> ordersList = orderRepository.findByUser(user);
         return ordersList.stream().map(this::convertToDTO).collect(Collectors.toList());
     }
