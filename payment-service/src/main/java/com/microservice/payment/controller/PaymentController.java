@@ -1,24 +1,27 @@
 package com.microservice.payment.controller;
 
 import com.microservice.common.security.AuthenticatedUser;
+import com.microservice.payment.dto.VerifyPaymentRequest;
 import com.microservice.payment.entity.PaymentOrder;
+import com.microservice.payment.exception.BadRequestException;
 import com.microservice.payment.service.PaymentService;
-import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.http.HttpStatus;
+import jakarta.validation.Valid;
 import org.springframework.http.ResponseEntity;
+import org.springframework.security.access.AccessDeniedException;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.*;
-import org.springframework.web.server.ResponseStatusException;
 
 import java.util.Map;
 
 @RestController
-@CrossOrigin(origins = "*")
 @RequestMapping("/api/payment")
 public class PaymentController {
 
-    @Autowired
-    private PaymentService paymentService;
+    private final PaymentService paymentService;
+
+    public PaymentController(PaymentService paymentService) {
+        this.paymentService = paymentService;
+    }
 
     /**
      * Data needed to open Razorpay Checkout.
@@ -41,35 +44,25 @@ public class PaymentController {
         );
     }
 
-    /**
-     * Called from Razorpay's success handler.
-     * Body: { "razorpay_order_id": "...", "razorpay_payment_id": "...", "razorpay_signature": "..." }
-     */
+    /** Called from Razorpay's success handler. The signature is verified on the server. */
     @PostMapping("/verify")
-    public ResponseEntity<?> verifyPayment(@RequestBody Map<String, String> body,
-                                           @AuthenticationPrincipal AuthenticatedUser caller) {
-        String orderId = body.get("razorpay_order_id");
-        String paymentId = body.get("razorpay_payment_id");
-        String signature = body.get("razorpay_signature");
+    public ResponseEntity<Map<String, String>> verifyPayment(@Valid @RequestBody VerifyPaymentRequest body,
+                                                             @AuthenticationPrincipal AuthenticatedUser caller) {
+        requireOwner(paymentService.getPaymentByRazorpayOrderId(body.razorpayOrderId()), caller, false);
 
-        if (orderId == null || paymentId == null || signature == null) {
-            return ResponseEntity.badRequest().body(Map.of("error", "Missing Razorpay fields"));
+        PaymentOrder result = paymentService.verifyAndComplete(
+                body.razorpayOrderId(), body.razorpayPaymentId(), body.razorpaySignature());
+
+        if (!"SUCCESS".equals(result.getStatus())) {
+            throw new BadRequestException("Invalid payment signature");
         }
-
-        requireOwner(paymentService.getPaymentByRazorpayOrderId(orderId), caller, false);
-
-        PaymentOrder result = paymentService.verifyAndComplete(orderId, paymentId, signature);
-        if ("SUCCESS".equals(result.getStatus())) {
-            return ResponseEntity.ok(Map.of("status", "SUCCESS", "paymentId", result.getPaymentId()));
-        }
-        return ResponseEntity.status(HttpStatus.BAD_REQUEST)
-                .body(Map.of("status", "FAILED", "error", "Invalid payment signature"));
+        return ResponseEntity.ok(Map.of("status", "SUCCESS", "paymentId", result.getPaymentId()));
     }
 
     /** Called when checkout is dismissed or the payment fails. */
     @PostMapping("/failed")
-    public ResponseEntity<?> paymentFailed(@RequestParam String razorpayOrderId,
-                                           @AuthenticationPrincipal AuthenticatedUser caller) {
+    public ResponseEntity<Map<String, String>> paymentFailed(@RequestParam String razorpayOrderId,
+                                                             @AuthenticationPrincipal AuthenticatedUser caller) {
         requireOwner(paymentService.getPaymentByRazorpayOrderId(razorpayOrderId), caller, false);
         PaymentOrder result = paymentService.markFailed(razorpayOrderId);
         return ResponseEntity.ok(Map.of("status", result.getStatus()));
@@ -79,7 +72,7 @@ public class PaymentController {
     private void requireOwner(PaymentOrder payment, AuthenticatedUser caller, boolean adminAllowed) {
         boolean owner = caller.getEmail() != null && caller.getEmail().equalsIgnoreCase(payment.getEmail());
         if (!owner && !(adminAllowed && caller.isAdmin())) {
-            throw new ResponseStatusException(HttpStatus.FORBIDDEN, "This payment does not belong to you");
+            throw new AccessDeniedException("This payment does not belong to you");
         }
     }
 }

@@ -4,7 +4,6 @@ import com.microservice.common.constants.KafkaTopics;
 import com.microservice.common.event.PaymentProcessedEvent;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.kafka.core.KafkaTemplate;
 import org.springframework.kafka.support.SendResult;
 import org.springframework.stereotype.Component;
@@ -20,8 +19,11 @@ public class PaymentEventProducer {
 
     private static final Logger log = LoggerFactory.getLogger(PaymentEventProducer.class);
 
-    @Autowired
-    private KafkaTemplate<String, Object> kafkaTemplate;
+    private final KafkaTemplate<String, Object> kafkaTemplate;
+
+    public PaymentEventProducer(KafkaTemplate<String, Object> kafkaTemplate) {
+        this.kafkaTemplate = kafkaTemplate;
+    }
 
     /**
      * Publishes a PaymentProcessedEvent to Kafka.

@@ -5,7 +5,6 @@ import com.microservice.common.event.PaymentProcessedEvent;
 import com.microservice.ecommerce.service.OrderService;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.kafka.annotation.KafkaListener;
 import org.springframework.stereotype.Component;
 
@@ -18,8 +17,11 @@ public class PaymentEventConsumer {
 
     private static final Logger log = LoggerFactory.getLogger(PaymentEventConsumer.class);
 
-    @Autowired
-    private OrderService orderService;
+    private final OrderService orderService;
+
+    public PaymentEventConsumer(OrderService orderService) {
+        this.orderService = orderService;
+    }
 
     @KafkaListener(topics = KafkaTopics.PAYMENT_PROCESSED, groupId = "ecommerce-service-group")
     public void handlePaymentProcessed(PaymentProcessedEvent event) {

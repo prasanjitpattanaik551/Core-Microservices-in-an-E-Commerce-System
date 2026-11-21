@@ -1,6 +1,8 @@
 package com.microservice.ecommerce.service;
 
 import com.microservice.ecommerce.dto.OrderDTO;
+import com.microservice.ecommerce.exception.BadRequestException;
+import com.microservice.ecommerce.exception.ResourceNotFoundException;
 import com.microservice.ecommerce.dto.OrderItemDTO;
 import com.microservice.ecommerce.model.OrderItem;
 import com.microservice.ecommerce.model.Orders;
@@ -10,10 +12,7 @@ import com.microservice.ecommerce.repo.OrderRepository;
 import com.microservice.ecommerce.repo.ProductRepository;
 import com.microservice.ecommerce.repo.UserRepository;
 import com.microservice.ecommerce.kafka.OrderEventProducer;
-import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
-import org.springframework.web.server.ResponseStatusException;
 
 import java.util.*;
 import java.util.stream.Collectors;
@@ -23,17 +22,20 @@ public class OrderService {
 
     private static final int MAX_QUANTITY_PER_ITEM = 100;
 
-    @Autowired
-    private UserRepository userRepository;
+    private final UserRepository userRepository;
 
-    @Autowired
-    private ProductRepository productRepository;
+    private final ProductRepository productRepository;
 
-    @Autowired
-    private OrderRepository orderRepository;
+    private final OrderRepository orderRepository;
 
-    @Autowired
-    private OrderEventProducer orderEventProducer;
+    private final OrderEventProducer orderEventProducer;
+
+    public OrderService(UserRepository userRepository, ProductRepository productRepository, OrderRepository orderRepository, OrderEventProducer orderEventProducer) {
+        this.userRepository = userRepository;
+        this.productRepository = productRepository;
+        this.orderRepository = orderRepository;
+        this.orderEventProducer = orderEventProducer;
+    }
 
     /**
      * The total amount is calculated here from the prices stored in the database.
@@ -41,11 +43,11 @@ public class OrderService {
      */
     public OrderDTO placeOrder(Long userId, Map<Long, Integer> productQuantities) {
         if (productQuantities == null || productQuantities.isEmpty()) {
-            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Order must contain at least one product");
+            throw new BadRequestException("Order must contain at least one product");
         }
 
         User user = userRepository.findById(userId)
-                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "User not found"));
+                .orElseThrow(() -> new ResourceNotFoundException("User not found: " + userId));
 
         Orders order = new Orders();
         order.setUser(user);
@@ -59,12 +61,11 @@ public class OrderService {
         for (Map.Entry<Long, Integer> entry : productQuantities.entrySet()) {
             Integer quantity = entry.getValue();
             if (quantity == null || quantity <= 0 || quantity > MAX_QUANTITY_PER_ITEM) {
-                throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
-                        "Quantity must be between 1 and " + MAX_QUANTITY_PER_ITEM);
+                throw new BadRequestException("Quantity must be between 1 and " + MAX_QUANTITY_PER_ITEM);
             }
 
             Product product = productRepository.findById(entry.getKey())
-                    .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Product not found"));
+                    .orElseThrow(() -> new ResourceNotFoundException("Product not found: " + entry.getKey()));
 
             OrderItem orderItem = new OrderItem();
             orderItem.setOrder(order);
@@ -111,7 +112,7 @@ public class OrderService {
 
     public List<OrderDTO> getOrderByUser(Long userId) {
         User user = userRepository.findById(userId)
-                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "User not found"));
+                .orElseThrow(() -> new ResourceNotFoundException("User not found: " + userId));
         List<Orders> ordersList = orderRepository.findByUser(user);
         return ordersList.stream().map(this::convertToDTO).collect(Collectors.toList());
     }
@@ -122,7 +123,7 @@ public class OrderService {
      */
     public void updateOrderStatus(Long orderId, String newStatus) {
         Orders order = orderRepository.findById(orderId)
-                .orElseThrow(() -> new RuntimeException("Order not found: " + orderId));
+                .orElseThrow(() -> new ResourceNotFoundException("Order not found: " + orderId));
         String previousStatus = order.getStatus();
         order.setStatus(newStatus);
         orderRepository.save(order);

@@ -2,7 +2,7 @@ package com.microservice.payment.service;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.mail.SimpleMailMessage;
 import org.springframework.mail.javamail.JavaMailSender;
 import org.springframework.stereotype.Service;
@@ -12,49 +12,32 @@ public class EmailService {
 
     private static final Logger log = LoggerFactory.getLogger(EmailService.class);
 
-    @Autowired(required = false)
-    private JavaMailSender javaMailSender;
+    private final ObjectProvider<JavaMailSender> mailSenderProvider;
 
-    public void sendEmail(String toEmail, String name, String course, double amount) {
-        if (javaMailSender == null) {
-            log.warn("⚠️ JavaMailSender not configured. Skipping email to {}", toEmail);
-            return;
-        }
-
-        try {
-            SimpleMailMessage mailMessage = new SimpleMailMessage();
-            mailMessage.setTo(toEmail);
-            mailMessage.setSubject("Payment Successful - " + course);
-            mailMessage.setText("Hi " + name + ", \n\n" +
-                    "Thank you for your payment of Rs " + amount + ".\n" +
-                    "Your order for " + course + " has been confirmed.\n\n" +
-                    "We are looking forward to serving you!"
-            );
-            javaMailSender.send(mailMessage);
-            log.info("✅ Confirmation email sent to {}", toEmail);
-        } catch (Exception e) {
-            log.error("❌ Failed to send email to {}: {}", toEmail, e.getMessage());
-        }
+    public EmailService(ObjectProvider<JavaMailSender> mailSenderProvider) {
+        this.mailSenderProvider = mailSenderProvider;
     }
 
-    public void sendPaymentConfirmationFromKafka(String toEmail, String name, double amount, Long ecommerceOrderId) {
-        if (javaMailSender == null) {
-            log.warn("⚠️ JavaMailSender not configured. Skipping Kafka-triggered email to {}", toEmail);
+    /** Sends a payment confirmation. Email is optional: if mail is not configured it is skipped. */
+    public void sendPaymentConfirmation(String toEmail, String name, double amount, Long ecommerceOrderId) {
+        JavaMailSender mailSender = mailSenderProvider.getIfAvailable();
+        if (mailSender == null) {
+            log.warn("JavaMailSender not configured, skipping email to {}", toEmail);
             return;
         }
 
         try {
-            SimpleMailMessage mailMessage = new SimpleMailMessage();
-            mailMessage.setTo(toEmail);
-            mailMessage.setSubject("Payment Processed - Order #" + ecommerceOrderId);
-            mailMessage.setText("Hi " + name + ", \n\n" +
-                    "Your payment of Rs " + amount + " for Order #" + ecommerceOrderId + " has been processed successfully.\n\n" +
-                    "Thank you for shopping with us!"
-            );
-            javaMailSender.send(mailMessage);
-            log.info("✅ Kafka-triggered payment email sent to {} for order #{}", toEmail, ecommerceOrderId);
+            SimpleMailMessage message = new SimpleMailMessage();
+            message.setTo(toEmail);
+            message.setSubject("Payment Successful - Order #" + ecommerceOrderId);
+            message.setText("Hi " + name + ",\n\n"
+                    + "Your payment of Rs " + amount + " for Order #" + ecommerceOrderId
+                    + " has been received successfully.\n\n"
+                    + "Thank you for shopping with us!");
+            mailSender.send(message);
+            log.info("Payment confirmation email sent for order #{}", ecommerceOrderId);
         } catch (Exception e) {
-            log.error("❌ Failed to send Kafka email to {}: {}", toEmail, e.getMessage());
+            log.error("Failed to send payment email for order #{}: {}", ecommerceOrderId, e.getMessage());
         }
     }
 }

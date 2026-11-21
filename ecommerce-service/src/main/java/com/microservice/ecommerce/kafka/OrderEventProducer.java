@@ -7,7 +7,6 @@ import com.microservice.ecommerce.model.Orders;
 import com.microservice.ecommerce.model.User;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.kafka.core.KafkaTemplate;
 import org.springframework.kafka.support.SendResult;
 import org.springframework.stereotype.Component;
@@ -24,8 +23,11 @@ public class OrderEventProducer {
 
     private static final Logger log = LoggerFactory.getLogger(OrderEventProducer.class);
 
-    @Autowired
-    private KafkaTemplate<String, Object> kafkaTemplate;
+    private final KafkaTemplate<String, Object> kafkaTemplate;
+
+    public OrderEventProducer(KafkaTemplate<String, Object> kafkaTemplate) {
+        this.kafkaTemplate = kafkaTemplate;
+    }
 
     /**
      * Publishes an OrderCreatedEvent to Kafka when a new order is placed.

@@ -1,6 +1,7 @@
 package com.microservice.payment.service;
 
 import com.microservice.common.event.PaymentProcessedEvent;
+import com.microservice.payment.exception.ResourceNotFoundException;
 import com.microservice.payment.entity.PaymentOrder;
 import com.microservice.payment.kafka.PaymentEventProducer;
 import com.microservice.payment.repo.PaymentRepo;
@@ -11,12 +12,9 @@ import com.razorpay.Utils;
 import org.json.JSONObject;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
-import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
-import org.springframework.web.server.ResponseStatusException;
 
 import java.time.LocalDateTime;
 
@@ -36,17 +34,20 @@ public class PaymentService {
 
     private static final Logger log = LoggerFactory.getLogger(PaymentService.class);
 
-    @Autowired
-    private PaymentRepo paymentRepo;
+    private final PaymentRepo paymentRepo;
 
-    @Autowired
-    private EmailService emailService;
+    private final EmailService emailService;
 
-    @Autowired
-    private RazorpayClient razorpayClient;
+    private final RazorpayClient razorpayClient;
 
-    @Autowired
-    private PaymentEventProducer paymentEventProducer;
+    private final PaymentEventProducer paymentEventProducer;
+
+    public PaymentService(PaymentRepo paymentRepo, EmailService emailService, RazorpayClient razorpayClient, PaymentEventProducer paymentEventProducer) {
+        this.paymentRepo = paymentRepo;
+        this.emailService = emailService;
+        this.razorpayClient = razorpayClient;
+        this.paymentEventProducer = paymentEventProducer;
+    }
 
     @Value("${razorpay.key.id}")
     private String keyId;
@@ -85,7 +86,7 @@ public class PaymentService {
         payment.setEcommerceOrderId(ecommerceOrderId);
         payment.setOrderId(razorpayOrderId);
         payment.setStatus("CREATED");
-        payment.setCourseName("E-Commerce Order #" + ecommerceOrderId);
+        payment.setDescription("E-Commerce Order #" + ecommerceOrderId);
         payment.setCreatedAt(LocalDateTime.now());
 
         PaymentOrder saved = paymentRepo.save(payment);
@@ -97,7 +98,7 @@ public class PaymentService {
     public PaymentOrder getPaymentByEcommerceOrderId(Long ecommerceOrderId) {
         PaymentOrder payment = paymentRepo.findByEcommerceOrderId(ecommerceOrderId);
         if (payment == null) {
-            throw new ResponseStatusException(HttpStatus.NOT_FOUND, "Payment not found for order: " + ecommerceOrderId);
+            throw new ResourceNotFoundException("Payment not found for order: " + ecommerceOrderId);
         }
         return payment;
     }
@@ -105,7 +106,7 @@ public class PaymentService {
     public PaymentOrder getPaymentByRazorpayOrderId(String razorpayOrderId) {
         PaymentOrder payment = paymentRepo.findByOrderId(razorpayOrderId);
         if (payment == null) {
-            throw new ResponseStatusException(HttpStatus.NOT_FOUND, "Payment not found for Razorpay order: " + razorpayOrderId);
+            throw new ResourceNotFoundException("Payment not found for Razorpay order: " + razorpayOrderId);
         }
         return payment;
     }
@@ -123,7 +124,7 @@ public class PaymentService {
                                           String razorpaySignature) {
         PaymentOrder payment = paymentRepo.findByOrderId(razorpayOrderId);
         if (payment == null) {
-            throw new ResponseStatusException(HttpStatus.NOT_FOUND, "Payment not found for Razorpay order: " + razorpayOrderId);
+            throw new ResourceNotFoundException("Payment not found for Razorpay order: " + razorpayOrderId);
         }
 
         // Idempotency: already finished, do not process or publish twice
@@ -151,7 +152,7 @@ public class PaymentService {
         if (valid) {
             log.info("Payment verified: razorpayPaymentId={}, ecommerceOrderId={}",
                     razorpayPaymentId, saved.getEcommerceOrderId());
-            emailService.sendPaymentConfirmationFromKafka(
+            emailService.sendPaymentConfirmation(
                     saved.getEmail(), saved.getName(), saved.getAmount(), saved.getEcommerceOrderId());
         } else {
             log.warn("Invalid signature for razorpayOrderId={}", razorpayOrderId);
@@ -166,7 +167,7 @@ public class PaymentService {
     public PaymentOrder markFailed(String razorpayOrderId) {
         PaymentOrder payment = paymentRepo.findByOrderId(razorpayOrderId);
         if (payment == null) {
-            throw new ResponseStatusException(HttpStatus.NOT_FOUND, "Payment not found for Razorpay order: " + razorpayOrderId);
+            throw new ResourceNotFoundException("Payment not found for Razorpay order: " + razorpayOrderId);
         }
         if ("SUCCESS".equals(payment.getStatus())) {
             return payment; // never downgrade a successful payment

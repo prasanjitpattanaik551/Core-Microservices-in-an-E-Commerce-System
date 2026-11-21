@@ -19,7 +19,7 @@ public class PaymentOrder {
     private String name;
     private String email;
     private String phone;
-    private String courseName;
+    private String description;
     private Double amount;
     private String orderId;
     private String paymentId;
@@ -27,5 +27,6 @@ public class PaymentOrder {
     private LocalDateTime createdAt;
 
     /** Reference to the ecommerce order ID that triggered this payment */
+    @Column(unique = true)
     private Long ecommerceOrderId;
 }

@@ -1,5 +1,7 @@
 package com.microservice.gateway.security;
 
+import com.fasterxml.jackson.core.JsonProcessingException;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.microservice.common.security.JwtUtil;
 import io.jsonwebtoken.JwtException;
 import org.springframework.cloud.gateway.filter.GatewayFilterChain;
@@ -16,6 +18,9 @@ import org.springframework.web.server.ServerWebExchange;
 import reactor.core.publisher.Mono;
 
 import java.nio.charset.StandardCharsets;
+import java.time.Instant;
+import java.util.LinkedHashMap;
+import java.util.Map;
 
 /**
  * First line of defence: rejects any request without a valid JWT before it reaches a service.
@@ -24,6 +29,8 @@ import java.nio.charset.StandardCharsets;
  */
 @Component
 public class JwtAuthGlobalFilter implements GlobalFilter, Ordered {
+
+    private static final ObjectMapper MAPPER = new ObjectMapper();
 
     private final JwtUtil jwtUtil;
 
@@ -71,8 +78,21 @@ public class JwtAuthGlobalFilter implements GlobalFilter, Ordered {
         ServerHttpResponse response = exchange.getResponse();
         response.setStatusCode(HttpStatus.UNAUTHORIZED);
         response.getHeaders().setContentType(MediaType.APPLICATION_JSON);
-        byte[] body = "{\"error\":\"Unauthorized\"}".getBytes(StandardCharsets.UTF_8);
-        return response.writeWith(Mono.just(response.bufferFactory().wrap(body)));
+
+        Map<String, Object> body = new LinkedHashMap<>();
+        body.put("timestamp", Instant.now().toString());
+        body.put("status", 401);
+        body.put("error", "Unauthorized");
+        body.put("message", "Authentication is required. Send a valid Bearer token.");
+        body.put("path", exchange.getRequest().getURI().getPath());
+
+        byte[] bytes;
+        try {
+            bytes = MAPPER.writeValueAsBytes(body);
+        } catch (JsonProcessingException e) {
+            bytes = "{\"status\":401,\"error\":\"Unauthorized\"}".getBytes(StandardCharsets.UTF_8);
+        }
+        return response.writeWith(Mono.just(response.bufferFactory().wrap(bytes)));
     }
 
     @Override

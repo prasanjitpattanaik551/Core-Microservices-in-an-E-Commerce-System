@@ -2,10 +2,15 @@ package com.microservice.payment.config;
 
 import com.microservice.common.security.JwtUtil;
 import com.microservice.payment.security.JwtAuthFilter;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.microservice.payment.exception.ApiError;
+import jakarta.servlet.http.HttpServletRequest;
+import jakarta.servlet.http.HttpServletResponse;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.http.HttpStatus;
+import org.springframework.http.MediaType;
 import org.springframework.security.config.Customizer;
 import org.springframework.security.config.annotation.method.configuration.EnableMethodSecurity;
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
@@ -13,6 +18,8 @@ import org.springframework.security.config.annotation.web.configuration.EnableWe
 import org.springframework.security.config.http.SessionCreationPolicy;
 import org.springframework.security.web.SecurityFilterChain;
 import org.springframework.security.web.authentication.UsernamePasswordAuthenticationFilter;
+
+import java.io.IOException;
 
 @Configuration
 @EnableWebSecurity
@@ -34,12 +41,22 @@ public class SecurityConfig {
                 .authorizeHttpRequests(auth -> auth
                         .requestMatchers("/actuator/health", "/error").permitAll()
                         .anyRequest().authenticated())   // every payment endpoint needs a valid JWT
-                .exceptionHandling(ex -> ex.authenticationEntryPoint((req, res, e) -> {
-                    res.setStatus(HttpStatus.UNAUTHORIZED.value());
-                    res.setContentType("application/json");
-                    res.getWriter().write("{\"error\":\"Unauthorized\"}");
-                }))
+                .exceptionHandling(ex -> ex
+                        .authenticationEntryPoint((req, res, e) -> writeError(req, res, HttpStatus.UNAUTHORIZED,
+                                "Authentication is required. Send a valid Bearer token."))
+                        .accessDeniedHandler((req, res, e) -> writeError(req, res, HttpStatus.FORBIDDEN,
+                                "You do not have permission to access this resource.")))
                 .addFilterBefore(new JwtAuthFilter(jwtUtil), UsernamePasswordAuthenticationFilter.class);
         return http.build();
+    }
+
+    private static final ObjectMapper MAPPER = new ObjectMapper();
+
+    private static void writeError(HttpServletRequest req, HttpServletResponse res,
+                                   HttpStatus status, String message) throws IOException {
+        res.setStatus(status.value());
+        res.setContentType(MediaType.APPLICATION_JSON_VALUE);
+        MAPPER.writeValue(res.getOutputStream(),
+                ApiError.of(status.value(), status.getReasonPhrase(), message, req.getRequestURI(), null));
     }
 }

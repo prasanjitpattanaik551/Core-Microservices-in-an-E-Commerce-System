@@ -1,15 +1,16 @@
-FROM maven:3.9.9-eclipse-temurin-17 AS build
-WORKDIR /workspace
+# syntax=docker/dockerfile:1
+# Build from the repository root (kafka-common is a shared module):
+#   docker build -f ecommerce-service/Dockerfile -t ecommerce-service .
+FROM maven:3.9-eclipse-temurin-21 AS build
+WORKDIR /build
+COPY . .
+RUN --mount=type=cache,target=/root/.m2 \
+    mvn -B -pl ecommerce-service -am package -DskipTests
 
-COPY pom.xml .
-COPY ecommerce-service/pom.xml ecommerce-service/
-RUN mvn -f ecommerce-service/pom.xml dependency:go-offline -B
-
-COPY ecommerce-service/src ecommerce-service/src
-RUN mvn -f ecommerce-service/pom.xml clean package -DskipTests
-
-FROM eclipse-temurin:17-jre-alpine
+FROM eclipse-temurin:21-jre
+RUN groupadd --system app && useradd --system --gid app app
 WORKDIR /app
-COPY --from=build /workspace/ecommerce-service/target/*.jar app.jar
-EXPOSE 8081
-ENTRYPOINT ["java", "-jar", "app.jar"]
+COPY --from=build /build/ecommerce-service/target/*.jar app.jar
+USER app
+EXPOSE 8080
+ENTRYPOINT ["java", "-jar", "/app/app.jar"]
